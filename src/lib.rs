@@ -15,11 +15,11 @@ mod errors;
 
 use errors::*;
 
-const META: &'static str = "meta";
+const PRODUCER_OFFSETS: &'static str = "prod";
+const CONSUMER_OFFSETS: &'static str = "cons";
 const DATA: &'static str = "data";
 
 const WRITER_NEXT: &'static str = "writer-next";
-const CONSUMER_NEXT: &'static str = "consumer-next";
 
 pub struct Producer {
     env: Environment,
@@ -59,8 +59,8 @@ fn write_offset(meta: &DbHandle, txn: &Transaction, key: &str, off: u64) -> Resu
 impl Producer {
     pub fn new<P: AsRef<Path>>(place: P) -> Result<Self> {
         debug!("Producer Open env at: {:?}", place.as_ref());
-        let env = try!(EnvBuilder::new().max_dbs(2).open(place.as_ref(), 0o777));
-        let meta = try!(env.create_db(META, DbFlags::empty()));
+        let env = try!(EnvBuilder::new().max_dbs(3).open(place.as_ref(), 0o777));
+        let meta = try!(env.create_db(PRODUCER_OFFSETS, DbFlags::empty()));
         let data = try!(env.create_db(DATA, DbFlags::empty()));
         Ok(Producer {
             env: env,
@@ -86,23 +86,25 @@ pub struct Consumer {
     env: lmdb_rs::Environment,
     meta: DbHandle,
     data: DbHandle,
+    name: String,
 }
 
 impl Consumer {
-    pub fn new<P: AsRef<Path>>(place: P) -> Result<Self> {
-        let env = try!(EnvBuilder::new().max_dbs(2).open(place.as_ref(), 0o777));
-        let meta = try!(env.create_db(META, DbFlags::empty()));
+    pub fn new<P: AsRef<Path>>(place: P, name: &str) -> Result<Self> {
+        let env = try!(EnvBuilder::new().max_dbs(3).open(place.as_ref(), 0o777));
+        let meta = try!(env.create_db(CONSUMER_OFFSETS, DbFlags::empty()));
         let data = try!(env.create_db(DATA, DbFlags::empty()));
         Ok(Consumer {
             env: env,
             meta: meta,
             data: data,
+            name: name.to_string(),
         })
     }
 
     pub fn poll(&mut self) -> Result<Option<Vec<u8>>> {
         let txn = try!(self.env.new_transaction());
-        let offset = try!(read_offset(&self.meta, &txn, CONSUMER_NEXT));
+        let offset = try!(read_offset(&self.meta, &txn, &self.name));
         let key = try!(encode_key(offset));
         let val = {
             let val = match txn.bind(&self.data).get(&(&key as &[u8])) {
@@ -113,7 +115,7 @@ impl Consumer {
             val
         };
         trace!("read @{:?}: {:?}", offset, val);
-        try!(write_offset(&self.meta, &txn, CONSUMER_NEXT, offset + 1));
+        try!(write_offset(&self.meta, &txn, &self.name, offset + 1));
         try!(txn.commit());
 
         Ok(val)
