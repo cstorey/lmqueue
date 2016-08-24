@@ -18,6 +18,8 @@ use errors::*;
 const PRODUCER_OFFSETS: &'static str = "prod";
 const CONSUMER_OFFSETS: &'static str = "cons";
 const DATA: &'static str = "data";
+// 1TB. That'll be enough, right?
+const ARBITARILY_LARGE: u64 = 1 << 40;
 
 const WRITER_NEXT: &'static str = "writer-next";
 
@@ -59,7 +61,10 @@ fn write_offset(meta: &DbHandle, txn: &Transaction, key: &str, off: u64) -> Resu
 impl Producer {
     pub fn new<P: AsRef<Path>>(place: P) -> Result<Self> {
         debug!("Producer Open env at: {:?}", place.as_ref());
-        let env = try!(EnvBuilder::new().max_dbs(3).open(place.as_ref(), 0o777));
+        let env = try!(EnvBuilder::new()
+                           .max_dbs(3)
+                           .map_size(ARBITARILY_LARGE)
+                           .open(place.as_ref(), 0o777));
         let meta = try!(env.create_db(PRODUCER_OFFSETS, DbFlags::empty()));
         let data = try!(env.create_db(DATA, DbFlags::empty()));
         Ok(Producer {
