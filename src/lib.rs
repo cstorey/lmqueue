@@ -45,7 +45,7 @@ fn decode_key(val: &[u8]) -> Result<u64> {
 
 
 
-fn read_offset(meta: Database, txn: &RwTransaction, key: &str) -> Result<u64> {
+fn read_offset<T: Transaction>(meta: Database, txn: &T, key: &str) -> Result<u64> {
     let val = {
         let val = match txn.get(meta, &key) {
             Ok(val) => try!(decode_key(val)),
@@ -104,7 +104,7 @@ pub struct Consumer {
 
 #[derive(Debug,Clone,Eq,PartialEq)]
 pub struct Entry {
-    off: u64,
+    offset: u64,
     pub data: Vec<u8>,
 }
 
@@ -125,26 +125,32 @@ impl Consumer {
     }
 
     pub fn poll(&mut self) -> Result<Option<Entry>> {
-        let mut txn = try!(self.env.begin_rw_txn());
-        let offset = try!(read_offset(self.meta, &txn, &self.name));
-        let key = try!(encode_key(offset));
-        let val = {
-            let val = match txn.get(self.data, &key) {
+        let entry = {
+            let txn = try!(self.env.begin_ro_txn());
+            let offset = try!(read_offset(self.meta, &txn, &self.name));
+            let key = try!(encode_key(offset));
+            match txn.get(self.data, &key) {
                 Ok(val) => {
-                    Some(Entry {
-                        off: offset,
+                    Entry {
+                        offset: offset,
                         data: val.to_vec(),
-                    })
+                    }
                 }
-                Err(lmdb::Error::NotFound) => None,
+                Err(lmdb::Error::NotFound) => return Ok(None),
                 Err(e) => return Err(e.into()),
-            };
-            val
+            }
         };
-        trace!("read @{:?}: {:?}", offset, val);
-        try!(write_offset(self.meta, &mut txn, &self.name, offset + 1));
-        try!(txn.commit());
+        trace!("read {:?}", entry);
 
-        Ok(val)
+        try!(self.commit_upto(&entry));
+
+        Ok(Some(entry))
+    }
+
+    fn commit_upto(&self, entry: &Entry) -> Result<()> {
+        let mut txn = try!(self.env.begin_rw_txn());
+        try!(write_offset(self.meta, &mut txn, &self.name, entry.offset + 1));
+        try!(txn.commit());
+        Ok(())
     }
 }
