@@ -1,9 +1,9 @@
-use lmdb_rs;
+use lmdb;
 use std;
 
 error_chain!(
     foreign_links {
-        lmdb_rs::MdbError, Mdb;
+        lmdb::Error, Mdb;
         std::io::Error, Io;
     }
 );
