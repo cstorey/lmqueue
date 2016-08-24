@@ -96,7 +96,10 @@ pub struct Consumer {
 
 impl Consumer {
     pub fn new<P: AsRef<Path>>(place: P, name: &str) -> Result<Self> {
-        let env = try!(EnvBuilder::new().max_dbs(3).open(place.as_ref(), 0o777));
+        let env = try!(EnvBuilder::new()
+                           .max_dbs(3)
+                           .map_size(ARBITARILY_LARGE)
+                           .open(place.as_ref(), 0o777));
         let meta = try!(env.create_db(CONSUMER_OFFSETS, DbFlags::empty()));
         let data = try!(env.create_db(DATA, DbFlags::empty()));
         Ok(Consumer {
