@@ -55,6 +55,7 @@ fn process_consumer(dir: &str, consumer_name: &str, filter_command: Vec<&str>) {
             child.stdin.as_mut().expect("stdin").write_all(&data.data).expect("write to child");
             let status = child.wait().expect("child wait");
             debug!("child exited with {:?}", status);
+            consumer.commit_upto(&data).expect("commit");
         }
         debug!("sleeping");
         thread::sleep(Duration::from_millis(100));

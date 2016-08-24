@@ -100,6 +100,7 @@ pub struct Consumer {
     meta: Database,
     data: Database,
     name: String,
+    offset: u64,
 }
 
 #[derive(Debug,Clone,Eq,PartialEq)]
@@ -116,38 +117,47 @@ impl Consumer {
                            .open(place.as_ref()));
         let meta = try!(env.create_db(Some(CONSUMER_OFFSETS), DatabaseFlags::empty()));
         let data = try!(env.create_db(Some(DATA), DatabaseFlags::empty()));
+        let offset = {
+            let txn = try!(env.begin_ro_txn());
+            try!(read_offset(meta, &txn, name))
+        };
+
         Ok(Consumer {
             env: env,
             meta: meta,
             data: data,
             name: name.to_string(),
+            offset: offset,
         })
     }
 
     pub fn poll(&mut self) -> Result<Option<Entry>> {
         let entry = {
             let txn = try!(self.env.begin_ro_txn());
-            let offset = try!(read_offset(self.meta, &txn, &self.name));
-            let key = try!(encode_key(offset));
+            let key = try!(encode_key(self.offset));
+            debug!("Attempt read at: {:?}", self.offset);
             match txn.get(self.data, &key) {
                 Ok(val) => {
                     Entry {
-                        offset: offset,
+                        offset: self.offset,
                         data: val.to_vec(),
                     }
                 }
-                Err(lmdb::Error::NotFound) => return Ok(None),
+                Err(lmdb::Error::NotFound) => {
+                    debug!("Nothing found");
+                    return Ok(None);
+                }
                 Err(e) => return Err(e.into()),
             }
         };
         trace!("read {:?}", entry);
+        // try!(self.commit_upto(&entry));
 
-        try!(self.commit_upto(&entry));
-
+        self.offset += 1;
         Ok(Some(entry))
     }
 
-    fn commit_upto(&self, entry: &Entry) -> Result<()> {
+    pub fn commit_upto(&self, entry: &Entry) -> Result<()> {
         let mut txn = try!(self.env.begin_rw_txn());
         try!(write_offset(self.meta, &mut txn, &self.name, entry.offset + 1));
         try!(txn.commit());
