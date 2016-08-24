@@ -18,7 +18,7 @@ const PRODUCER_OFFSETS: &'static str = "prod";
 const CONSUMER_OFFSETS: &'static str = "cons";
 const DATA: &'static str = "data";
 // 1TGB. That'll be enough, right?
-const ARBITARILY_LARGE: usize = 1<<40;
+const ARBITARILY_LARGE: usize = 1 << 40;
 
 const WRITER_NEXT: &'static str = "writer-next";
 
@@ -39,8 +39,8 @@ fn encode_key(val: u64) -> Result<[u8; 8]> {
 }
 
 fn decode_key(val: &[u8]) -> Result<u64> {
-        let mut r = Cursor::new(val);
-        Ok(try!(r.read_u64::<BigEndian>()))
+    let mut r = Cursor::new(val);
+    Ok(try!(r.read_u64::<BigEndian>()))
 }
 
 
@@ -102,6 +102,12 @@ pub struct Consumer {
     name: String,
 }
 
+#[derive(Debug,Clone,Eq,PartialEq)]
+pub struct Entry {
+    off: u64,
+    pub data: Vec<u8>,
+}
+
 impl Consumer {
     pub fn new<P: AsRef<Path>>(place: P, name: &str) -> Result<Self> {
         let env = try!(Environment::new()
@@ -118,13 +124,18 @@ impl Consumer {
         })
     }
 
-    pub fn poll(&mut self) -> Result<Option<Vec<u8>>> {
+    pub fn poll(&mut self) -> Result<Option<Entry>> {
         let mut txn = try!(self.env.begin_rw_txn());
         let offset = try!(read_offset(self.meta, &txn, &self.name));
         let key = try!(encode_key(offset));
         let val = {
             let val = match txn.get(self.data, &key) {
-                Ok(val) => Some(val.to_vec()),
+                Ok(val) => {
+                    Some(Entry {
+                        off: offset,
+                        data: val.to_vec(),
+                    })
+                }
                 Err(lmdb::Error::NotFound) => None,
                 Err(e) => return Err(e.into()),
             };

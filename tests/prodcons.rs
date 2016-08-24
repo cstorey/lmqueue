@@ -7,7 +7,7 @@ fn can_produce_none() {
     env_logger::init().unwrap_or(());
     let dir = tempdir::TempDir::new("store").expect("store-dir");
     let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
-    assert_eq!(cons.poll().expect("poll"), None)
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), None)
 }
 
 #[test]
@@ -18,8 +18,8 @@ fn can_produce_one() {
     let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
     prod.produce(b"42").expect("produce");
 
-    assert_eq!(cons.poll().expect("poll"), Some(b"42".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), None)
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"42".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), None)
 }
 
 #[test]
@@ -32,10 +32,10 @@ fn can_produce_several() {
     prod.produce(b"1").expect("produce");
     prod.produce(b"2").expect("produce");
 
-    assert_eq!(cons.poll().expect("poll"), Some(b"0".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), Some(b"1".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), Some(b"2".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), None)
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"0".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"1".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"2".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), None)
 }
 
 #[test]
@@ -47,10 +47,10 @@ fn can_produce_incrementally() {
     lmqueue::Producer::new(dir.path()).expect("producer").produce(b"2").expect("produce");
 
     let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
-    assert_eq!(cons.poll().expect("poll"), Some(b"0".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), Some(b"1".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), Some(b"2".to_vec()));
-    assert_eq!(cons.poll().expect("poll"), None)
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"0".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"1".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"2".to_vec()));
+    assert_eq!(cons.poll().expect("poll").map(|e| e.data), None)
 }
 
 #[test]
@@ -64,19 +64,19 @@ fn can_consume_incrementally() {
 
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"0".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"0".to_vec()));
     }
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"1".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"1".to_vec()));
     }
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"2".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"2".to_vec()));
     }
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "default").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), None)
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), None)
     }
 }
 
@@ -90,18 +90,18 @@ fn can_consume_multiply() {
 
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "one").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"0".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"0".to_vec()));
     }
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "one").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"1".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"1".to_vec()));
     }
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "two").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"0".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"0".to_vec()));
     }
     {
         let mut cons = lmqueue::Consumer::new(dir.path(), "two").expect("consumer");
-        assert_eq!(cons.poll().expect("poll"), Some(b"1".to_vec()));
+        assert_eq!(cons.poll().expect("poll").map(|e| e.data), Some(b"1".to_vec()));
     }
 }

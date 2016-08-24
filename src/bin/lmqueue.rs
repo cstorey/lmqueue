@@ -52,7 +52,7 @@ fn process_consumer(dir: &str, consumer_name: &str, filter_command: Vec<&str>) {
         while let Some(data) = consumer.poll().expect("poll") {
             trace!("Polled for {:?}", data);
             let mut child = command.spawn().expect("spawn");
-            child.stdin.as_mut().expect("stdin").write_all(&data).expect("write to child");
+            child.stdin.as_mut().expect("stdin").write_all(&data.data).expect("write to child");
             let status = child.wait().expect("child wait");
             debug!("child exited with {:?}", status);
         }
