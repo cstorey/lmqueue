@@ -252,3 +252,26 @@ fn can_discard_queue() {
         assert_eq!(&entry.data, b"1");
     }
 }
+
+#[test]
+fn can_discard_on_empty() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        cons.discard_upto(42).expect("discard");
+    }
+}
+
+#[test]
+fn can_discard_after_written() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        cons.discard_upto(42).expect("discard");
+    }
+}
