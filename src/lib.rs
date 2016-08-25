@@ -153,7 +153,6 @@ impl Consumer {
     }
 
     pub fn poll(&mut self) -> Result<Option<Entry>> {
-
         let entry = {
             let data = try!(self.data());
             let txn = try!(ReadTransaction::new(&self.env));
@@ -253,6 +252,18 @@ impl Consumer {
         }
 
         Ok(ret)
+    }
+
+    pub fn clear_offset(&mut self) -> Result<()> {
+        let db = try!(self.meta());
+        // The transaction can be used for database created /before/ the txn,
+        // so ensure we create the db before the txn. Otherwise, lmdb returns
+        // the helpful `-EINVAL`.
+        let txn = try!(WriteTransaction::new(&self.env));
+
+        try!(mdb_maybe(txn.access().del_key(&db, &*self.name)));
+        txn.commit();
+        Ok(())
     }
 }
 

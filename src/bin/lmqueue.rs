@@ -41,6 +41,14 @@ fn main() {
                                                .short("t")
                                                .takes_value(true)
                                                .help("delete upto (and including) offset <N>")))
+                      .subcommand(SubCommand::with_name("rm-consumer")
+                                      .about("discard a consumer offset")
+                                      .arg(Arg::with_name("queue").required(true))
+                                      .arg(Arg::with_name("name")
+                                               .takes_value(true)
+                                               .index(2)
+                                               .required(true)
+                                               .help("delete consumer with name")))
                       .get_matches();
 
     env_logger::init().expect("env_logger::init");
@@ -59,6 +67,10 @@ fn main() {
                 None
             };
             process_trim(matches.value_of("queue").expect("queue"), upto)
+        }
+        ("rm-consumer", Some(matches)) => {
+            process_rm_consumer(matches.value_of("queue").expect("queue"),
+                                matches.value_of("name").expect("name"))
         }
         _ => println!("{}", matches.usage()),
     }
@@ -109,4 +121,11 @@ fn process_trim(dir: &str, offset: Option<u64>) {
     } else {
         warn!("No offset found/supplied");
     }
+}
+
+
+fn process_rm_consumer(dir: &str, name: &str) {
+    let mut consumer = lmqueue::Consumer::new(dir, name).expect("open");
+
+    consumer.clear_offset().expect("clear_offset");
 }

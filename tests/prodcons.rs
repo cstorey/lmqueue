@@ -272,6 +272,57 @@ fn can_discard_after_written() {
 
     {
         let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
-        cons.discard_upto(42).expect("discard");
+    }
+}
+
+#[test]
+fn can_remove_consumer_offset() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+    prod.produce(b"1").expect("produce");
+    prod.produce(b"2").expect("produce");
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        let entry = cons.poll().expect("poll");
+        cons.commit_upto(entry.as_ref().unwrap()).expect("commit");
+    }
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        cons.clear_offset();
+    }
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        let consumers = cons.consumers().expect("consumers");
+        assert_eq!(consumers.get("default"), None);
+    }
+}
+
+
+#[test]
+fn removing_non_consumer_is_noop() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+    prod.produce(b"1").expect("produce");
+    prod.produce(b"2").expect("produce");
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        let entry = cons.poll().expect("poll");
+    }
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        cons.clear_offset().expect("clear_offset");
+    }
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        let consumers = cons.consumers().expect("consumers");
+        assert_eq!(consumers.get("default"), None);
     }
 }
