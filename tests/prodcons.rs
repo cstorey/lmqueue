@@ -2,6 +2,8 @@ extern crate lmqueue;
 extern crate tempdir;
 extern crate env_logger;
 
+use std::collections::BTreeMap;
+
 #[test]
 fn can_produce_none() {
     env_logger::init().unwrap_or(());
@@ -152,4 +154,75 @@ fn can_consume_multiply() {
         let entry =cons.poll().expect("poll");
         assert_eq!(entry.map(|e| e.data), Some(b"1".to_vec()));
     }
+}
+
+#[test]
+fn can_list_zero_consumer_offsets() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+    prod.produce(b"1").expect("produce");
+    let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+    let offsets = cons.consumers().expect("iter");
+    assert!(offsets.is_empty());
+}
+
+#[test]
+fn can_list_consumer_offset() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+    prod.produce(b"1").expect("produce");
+
+    let entry;
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+        entry =cons.poll().expect("poll").expect("some entry");
+        cons.commit_upto(&entry).expect("commit");
+    }
+
+    let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+    let offsets = cons.consumers().expect("iter");
+    assert_eq!(offsets.len(), 1);
+    assert_eq!(offsets.get("one"), Some(&entry.offset));
+}
+
+
+#[test]
+fn can_list_consumer_offsets() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+    prod.produce(b"1").expect("produce");
+
+    let one;
+    let two;
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+        let entry =cons.poll().expect("poll").expect("some entry");
+        cons.commit_upto(&entry).expect("commit");
+    }
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+        let entry =cons.poll().expect("poll").expect("some entry");
+        cons.commit_upto(&entry).expect("commit");
+        one = entry;
+    }
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "two").expect("consumer");
+        let entry =cons.poll().expect("poll").expect("some entry");
+        cons.commit_upto(&entry).expect("commit");
+        two = entry;
+    }
+
+    let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "two").expect("consumer");
+    let offsets = cons.consumers().expect("iter");
+    assert_eq!(offsets.len(), 2);
+    assert_eq!(offsets.get("one"), Some(&one.offset));
+    assert_eq!(offsets.get("two"), Some(&two.offset));
+
 }
