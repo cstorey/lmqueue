@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use lmdb_zero::{Environment, EnvBuilder, Database, ConstAccessor, ReadTransaction, WriteAccessor,
-                WriteTransaction, put, open, error};
+                WriteTransaction, put, open, del, error};
 
 mod errors;
 
@@ -186,6 +186,40 @@ impl Consumer {
         try!(txn.commit());
         Ok(())
     }
+
+    pub fn discard_upto(&self, offset: u64) -> Result<()> {
+        debug!("Discard upto: {:?}", offset);
+        let db = try!(self.data());
+        // The transaction can be used for database created /before/ the txn,
+        // so ensure we create the db before the txn. Otherwise, lmdb returns
+        // the helpful `-EINVAL`.
+        let txn = try!(WriteTransaction::new(&self.env));
+        {
+            debug!("open cursor for trim {:?}", self);
+            let mut cursor = try!(txn.cursor(&db).chain_err(|| "get cursor"));
+            let mut accessor = txn.access();
+            try!(mdb_maybe(cursor.first::<[u8], [u8]>(&accessor)));
+            loop {
+                let candidate = {
+                    let (k, _) = try!(cursor.get_current::<[u8], [u8]>(&accessor));
+                    try!(decode_key(k))
+                };
+                debug!("candidate: {:?}", candidate);
+                if candidate > offset {
+                    break;
+                }
+                trace!("Discard: {:?}", candidate);
+                try!(cursor.del(&mut accessor, del::Flags::empty()));
+
+                let _ = try!(mdb_maybe(cursor.next::<[u8], [u8]>(&accessor)));
+            }
+        }
+
+        try!(txn.commit());
+
+        Ok(())
+    }
+
 
     pub fn consumers(&self) -> Result<BTreeMap<String, u64>> {
         let db = try!(self.meta());

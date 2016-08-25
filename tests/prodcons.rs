@@ -224,5 +224,31 @@ fn can_list_consumer_offsets() {
     assert_eq!(offsets.len(), 2);
     assert_eq!(offsets.get("one"), Some(&one.offset));
     assert_eq!(offsets.get("two"), Some(&two.offset));
+}
 
+#[test]
+fn can_discard_queue() {
+    env_logger::init().unwrap_or(());
+    let dir = tempdir::TempDir::new("store").expect("store-dir");
+    let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
+    prod.produce(b"0").expect("produce");
+    prod.produce(b"1").expect("produce");
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+        let entry =cons.poll().expect("poll").expect("some entry");
+        cons.commit_upto(&entry).expect("commit");
+    }
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        let one_off = cons.consumers().expect("consumers")["one"];
+        cons.discard_upto(one_off).expect("discard");
+    }
+
+    {
+        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "two").expect("consumer");
+        let entry =cons.poll().expect("poll").expect("some entry");
+        assert_eq!(&entry.data, b"1");
+    }
 }
