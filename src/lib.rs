@@ -1,4 +1,4 @@
-extern crate lmdb;
+extern crate lmdb_zero;
 extern crate byteorder;
 #[macro_use]
 extern crate error_chain;
@@ -8,7 +8,8 @@ use std::path::Path;
 use std::io::Cursor;
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
-use lmdb::{DatabaseFlags, Database, Environment, RwTransaction, Transaction, WriteFlags};
+use lmdb_zero::{Environment, EnvBuilder, Database, ConstAccessor, ReadTransaction, WriteAccessor,
+                WriteTransaction, put, open, error};
 
 mod errors;
 
@@ -24,8 +25,6 @@ const WRITER_NEXT: &'static str = "writer-next";
 
 pub struct Producer {
     env: Environment,
-    meta: Database,
-    data: Database,
 }
 
 fn encode_key(val: u64) -> Result<[u8; 8]> {
@@ -45,11 +44,11 @@ fn decode_key(val: &[u8]) -> Result<u64> {
 
 
 
-fn read_offset<T: Transaction>(meta: Database, txn: &T, key: &str) -> Result<u64> {
+fn read_offset(meta: &Database, txn: &ConstAccessor, key: &str) -> Result<u64> {
     let val = {
-        let val = match txn.get(meta, &key) {
+        let val = match txn.get(meta, key) {
             Ok(val) => try!(decode_key(val)),
-            Err(lmdb::Error::NotFound) => 0,
+            Err(e) if e.code == error::NOTFOUND => 0,
             Err(e) => return Err(e.into()),
         };
         val
@@ -59,36 +58,43 @@ fn read_offset<T: Transaction>(meta: Database, txn: &T, key: &str) -> Result<u64
     Ok(val)
 }
 
-fn write_offset(meta: Database, txn: &mut RwTransaction, key: &str, off: u64) -> Result<()> {
+fn write_offset(meta: &Database, txn: &mut WriteAccessor, key: &str, off: u64) -> Result<()> {
     let encoded = try!(encode_key(off));
-    try!(txn.put(meta, &key, &encoded, WriteFlags::empty()));
+    try!(txn.put(meta, key, &encoded, put::Flags::empty()));
     trace!("{:?} now at pos {:?}", key, off);
     Ok(())
 }
 
 impl Producer {
-    pub fn new<P: AsRef<Path>>(place: P) -> Result<Self> {
+    pub fn new<P: AsRef<str>>(place: P) -> Result<Self> {
         debug!("Producer Open env at: {:?}", place.as_ref());
-        let env = try!(Environment::new()
-                           .set_max_dbs(3)
-                           .set_map_size(ARBITARILY_LARGE)
-                           .open(place.as_ref()));
-        let meta = try!(env.create_db(Some(PRODUCER_OFFSETS), DatabaseFlags::empty()));
-        let data = try!(env.create_db(Some(DATA), DatabaseFlags::empty()));
-        Ok(Producer {
-            env: env,
-            meta: meta,
-            data: data,
-        })
+        let mut b = try!(EnvBuilder::new());
+        try!(b.set_maxdbs(3));
+        try!(b.set_mapsize(ARBITARILY_LARGE));
+        let env = unsafe { try!(b.open(place.as_ref(), open::Flags::empty(), 0o777)) };
+
+        Ok(Producer { env: env })
+    }
+    fn meta(&self) -> Result<Database> {
+        Ok(try!(open_db(&self.env, PRODUCER_OFFSETS)))
+    }
+    fn data(&self) -> Result<Database> {
+        Ok(try!(open_db(&self.env, DATA)))
     }
 
-    pub fn produce(&mut self, data: &[u8]) -> Result<()> {
-        let mut txn = try!(self.env.begin_rw_txn());
-        let offset = try!(read_offset(self.meta, &txn, WRITER_NEXT));
-        let key = try!(encode_key(offset));
-        try!(txn.put(self.data, &key, &data, lmdb::NO_OVERWRITE));
-        trace!("wrote: {:?}", data);
-        try!(write_offset(self.meta, &mut txn, WRITER_NEXT, offset + 1));
+    pub fn produce(&mut self, msg: &[u8]) -> Result<()> {
+        let meta = try!(self.meta());
+        let data = try!(self.data());
+        let txn = try!(WriteTransaction::new(&self.env));
+        {
+            let mut acc = txn.access();
+            let offset = try!(read_offset(&meta, &acc, WRITER_NEXT));
+            let key = try!(encode_key(offset));
+            try!(acc.put(&data, &key, msg, put::NOOVERWRITE));
+            trace!("wrote: {:?}", msg);
+            try!(write_offset(&meta, &mut acc, WRITER_NEXT, offset + 1));
+            debug!("Produced at offset: {:?}", offset);
+        }
         try!(txn.commit());
 
         Ok(())
@@ -96,9 +102,7 @@ impl Producer {
 }
 
 pub struct Consumer {
-    env: lmdb::Environment,
-    meta: Database,
-    data: Database,
+    env: Environment,
     name: String,
     offset: u64,
 }
@@ -109,41 +113,55 @@ pub struct Entry {
     pub data: Vec<u8>,
 }
 
+
+fn open_db<'a>(env: &'a Environment, name: &str) -> Result<Database<'a>> {
+    let db = try!(Database::open(env,
+                                 Some(name),
+                                 &lmdb_zero::DatabaseOptions::new(lmdb_zero::db::CREATE)));
+    Ok(db)
+}
 impl Consumer {
-    pub fn new<P: AsRef<Path>>(place: P, name: &str) -> Result<Self> {
-        let env = try!(Environment::new()
-                           .set_max_dbs(3)
-                           .set_map_size(ARBITARILY_LARGE)
-                           .open(place.as_ref()));
-        let meta = try!(env.create_db(Some(CONSUMER_OFFSETS), DatabaseFlags::empty()));
-        let data = try!(env.create_db(Some(DATA), DatabaseFlags::empty()));
+    pub fn new<P: AsRef<str>>(place: P, name: &str) -> Result<Self> {
+        debug!("Consumer Open env at: {:?}", place.as_ref());
+        let mut b = try!(EnvBuilder::new());
+        try!(b.set_maxdbs(3));
+        try!(b.set_mapsize(ARBITARILY_LARGE));
+        let env = unsafe { try!(b.open(place.as_ref(), open::Flags::empty(), 0o777)) };
         let offset = {
-            let txn = try!(env.begin_ro_txn());
-            try!(read_offset(meta, &txn, name))
+            let meta = try!(open_db(&env, CONSUMER_OFFSETS));
+            let txn = try!(ReadTransaction::new(&env));
+            try!(read_offset(&meta, &txn.access(), name))
         };
 
         Ok(Consumer {
             env: env,
-            meta: meta,
-            data: data,
             name: name.to_string(),
             offset: offset,
         })
     }
 
+    fn meta(&self) -> Result<Database> {
+        Ok(try!(open_db(&self.env, CONSUMER_OFFSETS)))
+    }
+    fn data(&self) -> Result<Database> {
+        Ok(try!(open_db(&self.env, DATA)))
+    }
+
     pub fn poll(&mut self) -> Result<Option<Entry>> {
         let entry = {
-            let txn = try!(self.env.begin_ro_txn());
+            let data = try!(self.data());
+            let txn = try!(ReadTransaction::new(&self.env));
             let key = try!(encode_key(self.offset));
             debug!("Attempt read at: {:?}", self.offset);
-            match txn.get(self.data, &key) {
+            match txn.access().get(&data, &key) {
                 Ok(val) => {
+                    let _: &[u8] = val;
                     Entry {
                         offset: self.offset,
                         data: val.to_vec(),
                     }
                 }
-                Err(lmdb::Error::NotFound) => {
+                Err(e) if e.code == error::NOTFOUND => {
                     debug!("Nothing found");
                     return Ok(None);
                 }
@@ -151,15 +169,15 @@ impl Consumer {
             }
         };
         trace!("read {:?}", entry);
-        // try!(self.commit_upto(&entry));
 
         self.offset += 1;
         Ok(Some(entry))
     }
 
     pub fn commit_upto(&self, entry: &Entry) -> Result<()> {
-        let mut txn = try!(self.env.begin_rw_txn());
-        try!(write_offset(self.meta, &mut txn, &self.name, entry.offset + 1));
+        let meta = try!(self.meta());
+        let mut txn = try!(WriteTransaction::new(&self.env));
+        try!(write_offset(&meta, &mut txn.access(), &self.name, entry.offset + 1));
         try!(txn.commit());
         Ok(())
     }
