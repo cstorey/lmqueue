@@ -11,6 +11,8 @@ use std::thread;
 
 use std::process::{Stdio, Command, Child};
 
+const DEFAULT_CONSUMER: &'static str = "default";
+
 fn main() {
     let matches = App::new("listener")
                       .version("???")
@@ -26,6 +28,9 @@ fn main() {
                                                .multiple(true)
                                                .index(2)
                                                .required(true)))
+                      .subcommand(SubCommand::with_name("offsets")
+                                      .about("list consumer offsets")
+                                      .arg(Arg::with_name("queue").required(true)))
                       .get_matches();
 
     env_logger::init().expect("env_logger::init");
@@ -33,12 +38,12 @@ fn main() {
     match matches.subcommand() {
         ("consume", Some(matches)) => {
             process_consumer(matches.value_of("queue").expect("queue"),
-                             matches.value_of("name").unwrap_or("default"),
+                             matches.value_of("name").unwrap_or(DEFAULT_CONSUMER),
                              matches.values_of("command").expect("command").collect())
         }
-        other => panic!("Unknown subcommand: {:?}", other),
+        ("offsets", Some(matches)) => display_offsets(matches.value_of("queue").expect("queue")),
+        other => println!("{}", matches.usage()),
     }
-
 }
 
 fn process_consumer(dir: &str, consumer_name: &str, filter_command: Vec<&str>) {
@@ -59,5 +64,12 @@ fn process_consumer(dir: &str, consumer_name: &str, filter_command: Vec<&str>) {
         }
         debug!("sleeping");
         thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn display_offsets(dir: &str) {
+    let consumer = lmqueue::Consumer::new(dir, DEFAULT_CONSUMER).expect("open");
+    for (consumer, offset) in consumer.consumers().expect("consumers") {
+        println!("{}\t{}", consumer, offset);
     }
 }
