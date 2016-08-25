@@ -153,30 +153,29 @@ impl Consumer {
     }
 
     pub fn poll(&mut self) -> Result<Option<Entry>> {
+
         let entry = {
             let data = try!(self.data());
             let txn = try!(ReadTransaction::new(&self.env));
             let next_offset = self.offset + 1;
             let key = try!(encode_key(next_offset));
-            debug!("Attempt read at: {:?}", next_offset);
-            match txn.access().get(&data, &key) {
-                Ok(val) => {
-                    let _: &[u8] = val;
+            debug!("open cursor for {:?}", self);
+            let mut cursor = try!(txn.cursor(&data).chain_err(|| "get cursor"));
+            debug!("Attempt read from: {:?}", next_offset);
+            match try!(mdb_maybe(cursor.seek_range_k::<[u8], [u8]>(&txn.access(), &key))) {
+                Some((k, v)) => {
+                    let off = try!(decode_key(k));
                     Entry {
-                        offset: next_offset,
-                        data: val.to_vec(),
+                        offset: off,
+                        data: v.to_vec(),
                     }
                 }
-                Err(e) if e.code == error::NOTFOUND => {
-                    debug!("Nothing found");
-                    return Ok(None);
-                }
-                Err(e) => return Err(e.into()),
+                None => return Ok(None),
             }
         };
         trace!("read {:?}", entry);
+        self.offset = entry.offset;
 
-        self.offset += 1;
         Ok(Some(entry))
     }
 
