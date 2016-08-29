@@ -2,8 +2,6 @@ extern crate lmqueue;
 extern crate tempdir;
 extern crate env_logger;
 
-use std::collections::BTreeMap;
-
 #[test]
 fn can_produce_none() {
     env_logger::init().unwrap_or(());
@@ -163,7 +161,7 @@ fn can_list_zero_consumer_offsets() {
     let mut prod = lmqueue::Producer::new(dir.path().to_str().expect("path string")).expect("producer");
     prod.produce(b"0").expect("produce");
     prod.produce(b"1").expect("produce");
-    let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+    let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
     let offsets = cons.consumers().expect("iter");
     assert!(offsets.is_empty());
 }
@@ -183,7 +181,7 @@ fn can_list_consumer_offset() {
         cons.commit_upto(&entry).expect("commit");
     }
 
-    let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
+    let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "one").expect("consumer");
     let offsets = cons.consumers().expect("iter");
     assert_eq!(offsets.len(), 1);
     assert_eq!(offsets.get("one"), Some(&entry.offset));
@@ -219,7 +217,7 @@ fn can_list_consumer_offsets() {
         two = entry;
     }
 
-    let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "two").expect("consumer");
+    let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "two").expect("consumer");
     let offsets = cons.consumers().expect("iter");
     assert_eq!(offsets.len(), 2);
     assert_eq!(offsets.get("one"), Some(&one.offset));
@@ -241,7 +239,7 @@ fn can_discard_queue() {
     }
 
     {
-        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
         let one_off = cons.consumers().expect("consumers")["one"];
         cons.discard_upto(one_off).expect("discard");
     }
@@ -258,7 +256,7 @@ fn can_discard_on_empty() {
     env_logger::init().unwrap_or(());
     let dir = tempdir::TempDir::new("store").expect("store-dir");
     {
-        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
         cons.discard_upto(42).expect("discard");
     }
 }
@@ -271,7 +269,8 @@ fn can_discard_after_written() {
     prod.produce(b"0").expect("produce");
 
     {
-        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "cleaner").expect("consumer");
+        cons.discard_upto(42).expect("discard");
     }
 }
 
@@ -292,10 +291,10 @@ fn can_remove_consumer_offset() {
 
     {
         let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
-        cons.clear_offset();
+        let _ = cons.clear_offset().expect("clear_offset");
     }
     {
-        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
         let consumers = cons.consumers().expect("consumers");
         assert_eq!(consumers.get("default"), None);
     }
@@ -313,7 +312,7 @@ fn removing_non_consumer_is_noop() {
 
     {
         let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
-        let entry = cons.poll().expect("poll");
+        let _entry = cons.poll().expect("poll");
     }
 
     {
@@ -321,7 +320,7 @@ fn removing_non_consumer_is_noop() {
         cons.clear_offset().expect("clear_offset");
     }
     {
-        let mut cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
+        let cons = lmqueue::Consumer::new(dir.path().to_str().expect("path string"), "default").expect("consumer");
         let consumers = cons.consumers().expect("consumers");
         assert_eq!(consumers.get("default"), None);
     }

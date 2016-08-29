@@ -6,12 +6,12 @@ extern crate log;
 extern crate env_logger;
 use clap::{Arg, App, SubCommand};
 
-use std::io::{self, Write};
-use std::time::{self, Duration};
+use std::io::Write;
+use std::time::Duration;
 use std::thread;
 use std::cmp;
 
-use std::process::{Stdio, Command, Child};
+use std::process::{Stdio, Command};
 
 const DEFAULT_CONSUMER: &'static str = "default";
 

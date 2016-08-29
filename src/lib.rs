@@ -4,9 +4,7 @@ extern crate byteorder;
 extern crate error_chain;
 #[macro_use]
 extern crate log;
-use std::path::Path;
 use std::io::Cursor;
-use std::iter;
 use std::collections::BTreeMap;
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
@@ -180,7 +178,7 @@ impl Consumer {
 
     pub fn commit_upto(&self, entry: &Entry) -> Result<()> {
         let meta = try!(self.meta());
-        let mut txn = try!(WriteTransaction::new(&self.env));
+        let txn = try!(WriteTransaction::new(&self.env));
         try!(write_offset(&meta, &mut txn.access(), &self.name, entry.offset));
         try!(txn.commit());
         Ok(())
@@ -262,7 +260,7 @@ impl Consumer {
         let txn = try!(WriteTransaction::new(&self.env));
 
         try!(mdb_maybe(txn.access().del_key(&db, &*self.name)));
-        txn.commit();
+        try!(txn.commit());
         Ok(())
     }
 }
